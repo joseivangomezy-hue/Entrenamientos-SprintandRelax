@@ -2,15 +2,15 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Mi App Nativa Web</title>
+    <title>Mi App Web</title>
     <style>
-        /* Estilos básicos para que parezca una app */
+        /* CSS necesario para que el contenido se ajuste correctamente */
         body {
             margin: 0;
-            padding: 20px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #0A0A0C; /* Mismo color que tu theme-color */
+            padding: 0;
+            background-color: #0A0A0C; /* Color de fondo */
             color: white;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             height: 100vh;
             display: flex;
             justify-content: center;
@@ -22,8 +22,8 @@
 <body>
     
     <div>
-        <h1>¡App Lanzada!</h1>
-        <p>Esta web se comporta como una app nativa gracias a tus metaetiquetas.</p>
+        <h1>¡App Funcional!</h1>
+        <p>Esta pantalla tiene fondo negro y no tiene zoom.</p>
     </div>
 
     <script>
@@ -564,6 +564,7 @@ export default App; ---
           if (!meta) {
             meta = document.createElement('meta');
             meta.name = name;
+            meta.content = content;
             document.head.appendChild(meta);
           } else {
             meta.content = content;
