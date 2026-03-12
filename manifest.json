@@ -89,6 +89,7 @@
             const [isStandalone, setIsStandalone] = useState(true);
             const [showInstallBanner, setShowInstallBanner] = useState(false);
             
+            const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
             const [currentMesocycle, setCurrentMesocycle] = useState(1);
             const [currentWeek, setCurrentWeek] = useState(1);
             
@@ -146,7 +147,32 @@
                 localStorage.setItem('sprintRelaxPlan', JSON.stringify(plan));
             }, [plan]);
 
-            // --- Lógica Navegación ---
+            // --- Lógica Navegación y Fechas ---
+            const getFirstMondayOfYear = (year) => {
+                let date = new Date(year, 0, 1);
+                while (date.getDay() !== 1) { // 1 es Lunes
+                    date.setDate(date.getDate() + 1);
+                }
+                return date;
+            };
+
+            const getMesocycleDates = (year, meso) => {
+                const firstMonday = getFirstMondayOfYear(year);
+                const startDaysOffset = (meso - 1) * 28; // 4 semanas = 28 días
+                
+                const startDate = new Date(firstMonday);
+                startDate.setDate(startDate.getDate() + startDaysOffset);
+                
+                const endDate = new Date(startDate);
+                endDate.setDate(endDate.getDate() + 27); // + 27 días = hasta el domingo final
+
+                const options = { month: 'short', day: 'numeric' };
+                const startStr = startDate.toLocaleDateString('es-ES', options);
+                const endStr = endDate.toLocaleDateString('es-ES', options);
+
+                return `${startStr} - ${endStr}`;
+            };
+
             const handlePrevMeso = () => {
                 if (currentMesocycle > 1) {
                     const newMeso = currentMesocycle - 1;
@@ -161,10 +187,12 @@
                 setCurrentWeek((newMeso - 1) * 4 + 1);
             };
 
-            const openEditor = (week, day) => {
-                const key = `${week}-${day}`;
-                const session = plan[key];
-                setEditingDay({ week, day });
+            const openEditor = (year, week, day) => {
+                // Retrocompatibilidad con planes antiguos (sin año)
+                const key = plan[`${year}-${week}-${day}`] ? `${year}-${week}-${day}` : `${week}-${day}`;
+                const session = plan[key] || plan[`${year}-${week}-${day}`];
+                
+                setEditingDay({ year, week, day });
                 
                 if (session) {
                     setSessionType(session.type);
@@ -191,24 +219,28 @@
                 else if (sessionType === 'cuerda') data = [...ropeBlocks];
                 else if (sessionType === 'descanso') data = [];
 
-                const key = `${editingDay.week}-${editingDay.day}`;
-                const existingNotes = plan[key]?.notasAlumno || '';
+                const key = `${editingDay.year}-${editingDay.week}-${editingDay.day}`;
+                const fallbackKey = `${editingDay.week}-${editingDay.day}`;
+                const existingNotes = plan[key]?.notasAlumno || plan[fallbackKey]?.notasAlumno || '';
                 
-                setPlan({
-                    ...plan,
-                    [key]: {
-                        name: sessionType === 'descanso' ? 'Día de descanso' : (sessionName || `Sesión de ${sessionType}`),
-                        type: sessionType,
-                        data: data,
-                        notasAlumno: existingNotes 
-                    }
-                });
+                const newPlan = { ...plan };
+                // Borrar la key antigua si existiera para migrar a la nueva con Año
+                if (newPlan[fallbackKey]) delete newPlan[fallbackKey];
+
+                newPlan[key] = {
+                    name: sessionType === 'descanso' ? 'Día de descanso' : (sessionName || `Sesión de ${sessionType}`),
+                    type: sessionType,
+                    data: data,
+                    notasAlumno: existingNotes 
+                };
+
+                setPlan(newPlan);
                 setEditingDay(null);
                 setActiveTab('calendario');
             };
 
-            const updateStudentNotes = (week, day, notes) => {
-                const key = `${week}-${day}`;
+            const updateStudentNotes = (year, week, day, notes) => {
+                const key = plan[`${year}-${week}-${day}`] ? `${year}-${week}-${day}` : `${week}-${day}`;
                 if(plan[key]) {
                     setPlan(prev => ({
                         ...prev,
@@ -314,8 +346,6 @@
                 let percent1Rm = 0;
                 const v = vbtVelocity;
                 
-                // Cálculo de %1RM basado en la Velocidad de la 1RM (V1RM) específica
-                // Fórmula: %1RM = 100 - (Velocidad Actual - V1RM) * Pendiente de pérdida
                 if (vbtExercise === 'sentadilla') {
                     percent1Rm = 100 - (v - 0.32) * 66.6;
                 } else if (vbtExercise === 'banca') {
@@ -341,23 +371,40 @@
             // --- Componente UI Secundario ---
             const WeekSelector = () => {
                 const weeksInMeso = [startWeek, startWeek + 1, startWeek + 2, startWeek + 3];
+                const dateRange = getMesocycleDates(selectedYear, currentMesocycle);
+
                 return (
                     <div className="space-y-4 mb-8">
                         <div className="flex items-center justify-between px-2">
                             <div className="flex items-center gap-2">
                                 <Trophy size={14} className="text-[#06B6D4]" />
                                 <span className="text-[10px] font-bold uppercase text-[#71717A] tracking-widest">Planificación</span>
+                                <select 
+                                    value={selectedYear} 
+                                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                                    className="bg-transparent border-none text-[10px] font-bold text-[#06B6D4] outline-none cursor-pointer appearance-none px-1"
+                                >
+                                    {[...Array(5)].map((_, i) => {
+                                        const y = new Date().getFullYear() - 2 + i;
+                                        return <option key={y} value={y} className="bg-[#141417] text-white">{y}</option>;
+                                    })}
+                                </select>
                             </div>
                             <div className="flex items-center gap-3 bg-[#18181B] p-1.5 rounded-xl border border-[#27272A]">
                                 <button onClick={handlePrevMeso} className={`p-2 rounded-md transition-colors active:scale-90 ${currentMesocycle > 1 ? 'active:bg-zinc-800 text-white' : 'text-zinc-700'}`}><ChevronLeft size={16} /></button>
-                                <span className="text-[10px] font-black text-white min-w-[90px] text-center uppercase tracking-tighter">MESOCICLO {currentMesocycle}</span>
+                                <div className="flex flex-col items-center justify-center px-1">
+                                    <span className="text-[10px] font-black text-white min-w-[90px] text-center uppercase tracking-tighter">MESOCICLO {currentMesocycle}</span>
+                                    <span className="text-[8px] font-bold text-[#06B6D4] mt-0.5 tracking-wider">{dateRange}</span>
+                                </div>
                                 <button onClick={handleNextMeso} className="p-2 rounded-md active:bg-zinc-800 text-white active:scale-90 transition-all"><ChevronRight size={16} /></button>
                             </div>
                         </div>
                         <div className="flex items-center gap-2.5 overflow-x-auto pb-2 no-scrollbar px-1" ref={weekScrollRef}>
                             {weeksInMeso.map(w => {
                                 const isActive = currentWeek === w;
-                                const sessionsCount = Object.keys(plan).filter(k => k.startsWith(`${w}-`)).length;
+                                // Verificar sesiones incluyendo el año y con retrocompatibilidad
+                                const sessionsCount = days.filter(d => plan[`${selectedYear}-${w}-${d}`] || plan[`${w}-${d}`]).length;
+
                                 return (
                                     <button key={w} onClick={() => setCurrentWeek(w)} className={`flex-shrink-0 w-[72px] py-2.5 px-1 rounded-xl border transition-all duration-300 active:scale-95 flex flex-col items-center gap-0.5 ${isActive ? 'bg-[#06B6D4] border-[#22D3EE] text-black shadow-lg shadow-cyan-950/20' : 'bg-[#141417] border-[#27272A] text-[#71717A]'}`}>
                                         <span className={`text-[7px] font-black uppercase tracking-widest ${isActive ? 'text-cyan-900' : 'text-[#52525B]'}`}>Semana</span>
@@ -410,10 +457,10 @@
                                     <span className="text-[10px] font-black uppercase text-[#71717A] tracking-[0.2em]">Sesiones diarias</span>
                                 </div>
                                 {days.map(day => {
-                                    const session = plan[`${currentWeek}-${day}`];
+                                    const session = plan[`${selectedYear}-${currentWeek}-${day}`] || plan[`${currentWeek}-${day}`];
                                     const isRest = session?.type === 'descanso';
                                     return (
-                                        <div key={day} onClick={() => openEditor(currentWeek, day)} className={`group active:scale-[0.98] cursor-pointer p-4 rounded-2xl border transition-transform duration-200 ${session ? (isRest ? 'bg-[#18181B]/40 border-[#27272A]' : 'bg-[#06B6D4]/5 border-[#06B6D4]/40') : 'bg-[#141417] border-[#27272A] opacity-80 active:opacity-100'}`}>
+                                        <div key={day} onClick={() => openEditor(selectedYear, currentWeek, day)} className={`group active:scale-[0.98] cursor-pointer p-4 rounded-2xl border transition-transform duration-200 ${session ? (isRest ? 'bg-[#18181B]/40 border-[#27272A]' : 'bg-[#06B6D4]/5 border-[#06B6D4]/40') : 'bg-[#141417] border-[#27272A] opacity-80 active:opacity-100'}`}>
                                             <div className="flex justify-between items-center">
                                                 <div className="flex items-center gap-4">
                                                     <div className={`w-12 h-12 rounded-[14px] flex items-center justify-center ${session ? (isRest ? 'bg-[#27272A] text-[#71717A]' : 'bg-[#06B6D4] text-black shadow-md shadow-cyan-500/20') : 'bg-[#1F1F23] text-[#52525B]'}`}>
@@ -438,7 +485,7 @@
                                 <div className="flex items-center justify-between mb-2">
                                     <button onClick={() => { setEditingDay(null); setActiveTab('calendario'); }} className="flex items-center gap-2 p-2 -ml-2 text-[#A1A1AA] text-[11px] font-black uppercase tracking-widest active:text-[#06B6D4] active:bg-[#18181B] rounded-lg transition-all"><ArrowLeft size={16}/> Volver</button>
                                     <div className="text-right">
-                                        <span className="text-[9px] font-black text-[#52525B] uppercase block tracking-widest mb-0.5">Meso {currentMesocycle}</span>
+                                        <span className="text-[9px] font-black text-[#52525B] uppercase block tracking-widest mb-0.5">{editingDay?.year} · Meso {currentMesocycle}</span>
                                         <span className="text-[10px] font-black text-[#06B6D4] uppercase tracking-tighter">{editingDay?.day} · SEMANA {editingDay?.week}</span>
                                     </div>
                                 </div>
@@ -592,7 +639,7 @@
                                 </div>
                                 <div className="space-y-6">
                                     {days.map(day => {
-                                        const session = plan[`${currentWeek}-${day}`];
+                                        const session = plan[`${selectedYear}-${currentWeek}-${day}`] || plan[`${currentWeek}-${day}`];
                                         const isRest = session?.type === 'descanso';
                                         const theme = getSessionTheme(session?.type);
                                         
@@ -673,7 +720,7 @@
                                                         rows="3"
                                                         placeholder="¿Cómo te sentiste hoy? Sensaciones, RPE general, molestias..."
                                                         value={session.notasAlumno || ''}
-                                                        onChange={(e) => updateStudentNotes(currentWeek, day, e.target.value)}
+                                                        onChange={(e) => updateStudentNotes(selectedYear, currentWeek, day, e.target.value)}
                                                     />
                                                 </div>
                                             </div>
