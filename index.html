@@ -23,6 +23,9 @@
     
     <!-- Babel para compilar JSX en el navegador -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- MP4Box para extraer metadatos del video (Auto-FPS) -->
+    <script src="https://unpkg.com/mp4box@0.5.3/dist/mp4box.all.min.js"></script>
 
     <style>
         /* CSS para comportamiento 100% nativo (PWA App) */
@@ -81,15 +84,17 @@
         const Pen = (p) => <Icon name="fa-solid fa-pen" {...p} />;
         const Calculator = (p) => <Icon name="fa-solid fa-calculator" {...p} />;
         const VideoIcon = (p) => <Icon name="fa-solid fa-video" {...p} />;
+        const Youtube = (p) => <Icon name="fa-brands fa-youtube" {...p} />;
+        const StepBackward = (p) => <Icon name="fa-solid fa-backward-step" {...p} />;
+        const StepForward = (p) => <Icon name="fa-solid fa-forward-step" {...p} />;
 
         // --- Aplicación Principal ---
         const App = () => {
             const [activeTab, setActiveTab] = useState('calendario'); 
             const [editingDay, setEditingDay] = useState(null); 
-            const [isStandalone, setIsStandalone] = useState(true);
             const [showInstallBanner, setShowInstallBanner] = useState(false);
             
-            const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+            const [selectedYear, setSelectedYear] = useState(Math.max(2026, new Date().getFullYear()));
             const [currentMesocycle, setCurrentMesocycle] = useState(1);
             const [currentWeek, setCurrentWeek] = useState(1);
             
@@ -122,10 +127,22 @@
             const [targetReps, setTargetReps] = useState('8');
             const [targetRpe, setTargetRpe] = useState('8');
 
+            // NUEVO ESTADO: ROMs Guardados en LocalStorage para VBT
+            const [savedROMs, setSavedROMs] = useState(() => {
+                const saved = localStorage.getItem('sprintRelaxROMs');
+                return saved ? JSON.parse(saved) : { sentadilla: '60', banca: '45', muerto: '50', dominadas: '55' };
+            });
+
             // Estado VBT
             const [vbtExercise, setVbtExercise] = useState('sentadilla');
-            const [vbtRom, setVbtRom] = useState('60');
+            const [vbtRom, setVbtRom] = useState(() => {
+                const saved = localStorage.getItem('sprintRelaxROMs');
+                const parsed = saved ? JSON.parse(saved) : { sentadilla: '60', banca: '45', muerto: '50', dominadas: '55' };
+                return parsed['sentadilla'];
+            });
             const [vbtWeight, setVbtWeight] = useState('100');
+            const [vbtFps, setVbtFps] = useState('60');
+            const [isDetectingFps, setIsDetectingFps] = useState(false);
             const [vbtVideoUrl, setVbtVideoUrl] = useState(null);
             const [vbtStartTime, setVbtStartTime] = useState(null);
             const [vbtEndTime, setVbtEndTime] = useState(null);
@@ -133,19 +150,37 @@
             const [vbtTargetRpe, setVbtTargetRpe] = useState('8');
             const videoRef = useRef(null);
 
+            // NUEVO ESTADO: RMs Guardados en LocalStorage
+            const [saved1RMs, setSaved1RMs] = useState(() => {
+                const saved = localStorage.getItem('sprintRelax1RMs');
+                return saved ? JSON.parse(saved) : { sentadilla: 0, banca: 0, muerto: 0, dominadas: 0 };
+            });
+
+            // Estado para el reproductor de YouTube integrado
+            const [activeVideo, setActiveVideo] = useState(null);
+
             const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
             const weekScrollRef = useRef(null);
             const startWeek = (currentMesocycle - 1) * 4 + 1;
 
             useEffect(() => {
                 const isPWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-                setIsStandalone(isPWA);
                 setShowInstallBanner(!isPWA);
             }, []);
 
             useEffect(() => {
                 localStorage.setItem('sprintRelaxPlan', JSON.stringify(plan));
             }, [plan]);
+
+            // NUEVO EFECTO: Guardar RMs automáticamente
+            useEffect(() => {
+                localStorage.setItem('sprintRelax1RMs', JSON.stringify(saved1RMs));
+            }, [saved1RMs]);
+
+            // NUEVO EFECTO: Guardar ROMs automáticamente
+            useEffect(() => {
+                localStorage.setItem('sprintRelaxROMs', JSON.stringify(savedROMs));
+            }, [savedROMs]);
 
             // --- Lógica Navegación y Fechas ---
             const getFirstMondayOfYear = (year) => {
@@ -171,6 +206,13 @@
                 const endStr = endDate.toLocaleDateString('es-ES', options);
 
                 return `${startStr} - ${endStr}`;
+            };
+
+            const getExactDate = (year, week, dayIndex) => {
+                const firstMonday = getFirstMondayOfYear(year);
+                const targetDate = new Date(firstMonday);
+                targetDate.setDate(targetDate.getDate() + (week - 1) * 7 + dayIndex);
+                return targetDate;
             };
 
             const handlePrevMeso = () => {
@@ -224,7 +266,6 @@
                 const existingNotes = plan[key]?.notasAlumno || plan[fallbackKey]?.notasAlumno || '';
                 
                 const newPlan = { ...plan };
-                // Borrar la key antigua si existiera para migrar a la nueva con Año
                 if (newPlan[fallbackKey]) delete newPlan[fallbackKey];
 
                 newPlan[key] = {
@@ -274,9 +315,9 @@
 
             const getSessionTheme = (type) => {
                 switch (type) {
-                    case 'carrera': return { bg: 'bg-cyan-500/10', border: 'border-cyan-500/30', accent: 'text-cyan-400', iconBg: 'bg-cyan-500/20', icon: <Zap size={18}/> };
+                    case 'carrera': return { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', accent: 'text-yellow-400', iconBg: 'bg-yellow-500/20', icon: <Zap size={18}/> };
                     case 'fuerza': return { bg: 'bg-orange-500/10', border: 'border-orange-500/30', accent: 'text-orange-400', iconBg: 'bg-orange-500/20', icon: <Dumbbell size={18}/> };
-                    case 'natacion': return { bg: 'bg-indigo-500/10', border: 'border-indigo-500/30', accent: 'text-indigo-400', iconBg: 'bg-indigo-500/20', icon: <Waves size={18}/> };
+                    case 'natacion': return { bg: 'bg-blue-500/10', border: 'border-blue-500/30', accent: 'text-blue-400', iconBg: 'bg-blue-500/20', icon: <Waves size={18}/> };
                     case 'cuerda': return { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', accent: 'text-emerald-400', iconBg: 'bg-emerald-500/20', icon: <Timer size={18}/> };
                     default: return { bg: 'bg-zinc-500/5', border: 'border-zinc-500/20', accent: 'text-zinc-400', iconBg: 'bg-zinc-500/10', icon: <Moon size={18}/> };
                 }
@@ -324,6 +365,20 @@
                 return `0 kg (Peso corporal)`;
             };
 
+            // --- Función para extraer ID de YouTube ---
+            const getYoutubeVideoId = (url) => {
+                if (!url) return null;
+                try {
+                    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+                    const match = url.match(regExp);
+                    if (match && match[2].length === 11) return match[2];
+                    if (url.length === 11) return url;
+                } catch (e) {
+                    console.error("Error al procesar URL de YouTube", e);
+                }
+                return null;
+            };
+
             // --- Cálculos VBT ---
             const handleVideoUpload = (e) => {
                 const file = e.target.files[0];
@@ -331,16 +386,81 @@
                     setVbtVideoUrl(URL.createObjectURL(file));
                     setVbtStartTime(null);
                     setVbtEndTime(null);
+                    setIsDetectingFps(true);
+
+                    // --- FIX ERRORES MP4BOX EN CONSOLA ---
+                    // Anulamos temporalmente los logs de la biblioteca para evitar alertas visuales
+                    if (typeof window.Log !== 'undefined') {
+                        window.Log.error = () => {};
+                        window.Log.warn = () => {};
+                        window.Log.info = () => {};
+                        window.Log.debug = () => {};
+                    }
+
+                    // Evitar procesar en memoria videos de más de 100MB
+                    if (window.MP4Box && file.size <= 100 * 1024 * 1024) {
+                        const mp4boxfile = MP4Box.createFile();
+                        
+                        mp4boxfile.onReady = (info) => {
+                            if (info.videoTracks && info.videoTracks.length > 0) {
+                                const videoTrack = info.videoTracks[0];
+                                if (videoTrack.nb_samples && videoTrack.duration) {
+                                    const fps = Math.round(videoTrack.nb_samples / (videoTrack.duration / videoTrack.timescale));
+                                    const std = [24, 25, 30, 50, 60, 120, 240];
+                                    const closest = std.reduce((prev, curr) => Math.abs(curr - fps) < Math.abs(prev - fps) ? curr : prev);
+                                    setVbtFps(closest.toString());
+                                }
+                            }
+                            setIsDetectingFps(false);
+                        };
+                        
+                        mp4boxfile.onError = () => {
+                            setVbtFps('60'); // Respaldo ante formatos erróneos (MOV, WebM no válido, etc.)
+                            setIsDetectingFps(false);
+                        };
+                        
+                        const reader = new FileReader();
+                        reader.onload = (evt) => {
+                            const buffer = evt.target.result;
+                            buffer.fileStart = 0;
+                            try {
+                                mp4boxfile.appendBuffer(buffer);
+                                mp4boxfile.flush();
+                            } catch (err) {
+                                setVbtFps('60'); // Respaldo
+                                setIsDetectingFps(false);
+                            }
+                        };
+                        reader.onerror = () => {
+                            setVbtFps('60'); // Respaldo
+                            setIsDetectingFps(false);
+                        };
+                        
+                        reader.readAsArrayBuffer(file);
+                    } else {
+                        setVbtFps('60'); // Respaldo por ser muy grande
+                        setIsDetectingFps(false);
+                    }
                 }
             };
+            
             const markTime = (type) => {
                 if (videoRef.current) {
                     if (type === 'start') setVbtStartTime(videoRef.current.currentTime);
                     if (type === 'end') setVbtEndTime(videoRef.current.currentTime);
                 }
             };
+            
+            const handleStepFrame = (direction) => {
+                if (videoRef.current) {
+                    const fps = parseFloat(vbtFps) || 60;
+                    videoRef.current.currentTime += direction * (1 / fps);
+                }
+            };
+            
             const vbtTime = (vbtStartTime !== null && vbtEndTime !== null && vbtEndTime > vbtStartTime) ? (vbtEndTime - vbtStartTime) : 0;
             const vbtVelocity = vbtTime > 0 ? (parseFloat(vbtRom) / 100) / vbtTime : 0;
+            
             const calculateVbt1Rm = () => {
                 if (vbtVelocity <= 0 || !vbtWeight) return 0;
                 let percent1Rm = 0;
@@ -360,16 +480,20 @@
                 if (percent1Rm < 30) percent1Rm = 30;
                 return parseFloat(vbtWeight) / (percent1Rm / 100);
             };
+            
             const currentVbt1Rm = calculateVbt1Rm();
 
             const vbtTReps = parseInt(vbtTargetReps) || 0;
             const vbtTRpe = parseFloat(vbtTargetRpe) || 0;
             const vbtRir = Math.max(0, 10 - vbtTRpe);
             const vbtTheoreticalReps = vbtTReps + vbtRir;
-            const recommendedVbtWeight = (vbtTheoreticalReps > 0 && currentVbt1Rm > 0) ? currentVbt1Rm / (1 + vbtTheoreticalReps / 30) : 0;
+            
+            // USAR RM CALCULADO O GUARDADO COMO BASE
+            const effectiveVbt1Rm = currentVbt1Rm > 0 ? currentVbt1Rm : (saved1RMs[vbtExercise] || 0);
+            const recommendedVbtWeight = (vbtTheoreticalReps > 0 && effectiveVbt1Rm > 0) ? effectiveVbt1Rm / (1 + vbtTheoreticalReps / 30) : 0;
 
             // --- Componente UI Secundario ---
-            const WeekSelector = () => {
+            const renderWeekSelector = () => {
                 const weeksInMeso = [startWeek, startWeek + 1, startWeek + 2, startWeek + 3];
                 const dateRange = getMesocycleDates(selectedYear, currentMesocycle);
 
@@ -377,15 +501,15 @@
                     <div className="space-y-4 mb-8">
                         <div className="flex items-center justify-between px-2">
                             <div className="flex items-center gap-2">
-                                <Trophy size={14} className="text-[#06B6D4]" />
+                                <Trophy size={14} className="text-[#F97316]" />
                                 <span className="text-[10px] font-bold uppercase text-[#71717A] tracking-widest">Planificación</span>
                                 <select 
                                     value={selectedYear} 
                                     onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                                    className="bg-transparent border-none text-[10px] font-bold text-[#06B6D4] outline-none cursor-pointer appearance-none px-1"
+                                    className="bg-transparent border-none text-[10px] font-bold text-[#F97316] outline-none cursor-pointer appearance-none px-1"
                                 >
-                                    {[...Array(5)].map((_, i) => {
-                                        const y = new Date().getFullYear() - 2 + i;
+                                    {[...Array(60)].map((_, i) => {
+                                        const y = 2026 + i;
                                         return <option key={y} value={y} className="bg-[#141417] text-white">{y}</option>;
                                     })}
                                 </select>
@@ -394,7 +518,7 @@
                                 <button onClick={handlePrevMeso} className={`p-2 rounded-md transition-colors active:scale-90 ${currentMesocycle > 1 ? 'active:bg-zinc-800 text-white' : 'text-zinc-700'}`}><ChevronLeft size={16} /></button>
                                 <div className="flex flex-col items-center justify-center px-1">
                                     <span className="text-[10px] font-black text-white min-w-[90px] text-center uppercase tracking-tighter">MESOCICLO {currentMesocycle}</span>
-                                    <span className="text-[8px] font-bold text-[#06B6D4] mt-0.5 tracking-wider">{dateRange}</span>
+                                    <span className="text-[8px] font-bold text-[#F97316] mt-0.5 tracking-wider">{dateRange}</span>
                                 </div>
                                 <button onClick={handleNextMeso} className="p-2 rounded-md active:bg-zinc-800 text-white active:scale-90 transition-all"><ChevronRight size={16} /></button>
                             </div>
@@ -402,16 +526,15 @@
                         <div className="flex items-center gap-2.5 overflow-x-auto pb-2 no-scrollbar px-1" ref={weekScrollRef}>
                             {weeksInMeso.map(w => {
                                 const isActive = currentWeek === w;
-                                // Verificar sesiones incluyendo el año y con retrocompatibilidad
                                 const sessionsCount = days.filter(d => plan[`${selectedYear}-${w}-${d}`] || plan[`${w}-${d}`]).length;
 
                                 return (
-                                    <button key={w} onClick={() => setCurrentWeek(w)} className={`flex-shrink-0 w-[72px] py-2.5 px-1 rounded-xl border transition-all duration-300 active:scale-95 flex flex-col items-center gap-0.5 ${isActive ? 'bg-[#06B6D4] border-[#22D3EE] text-black shadow-lg shadow-cyan-950/20' : 'bg-[#141417] border-[#27272A] text-[#71717A]'}`}>
-                                        <span className={`text-[7px] font-black uppercase tracking-widest ${isActive ? 'text-cyan-900' : 'text-[#52525B]'}`}>Semana</span>
+                                    <button key={w} onClick={() => setCurrentWeek(w)} className={`flex-shrink-0 w-[72px] py-2.5 px-1 rounded-xl border transition-all duration-300 active:scale-95 flex flex-col items-center gap-0.5 ${isActive ? 'bg-[#F97316] border-[#FBBF24] text-black shadow-lg shadow-orange-950/20' : 'bg-[#141417] border-[#27272A] text-[#71717A]'}`}>
+                                        <span className={`text-[7px] font-black uppercase tracking-widest ${isActive ? 'text-orange-900' : 'text-[#52525B]'}`}>Semana</span>
                                         <span className={`text-xl font-black ${isActive ? 'text-black' : 'text-white'}`}>{w}</span>
                                         <div className="flex gap-0.5 mt-1">
                                             {[...Array(7)].map((_, i) => (
-                                                <div key={i} className={`w-1 h-1 rounded-full ${i < sessionsCount ? (isActive ? 'bg-cyan-900' : 'bg-[#06B6D4]') : (isActive ? 'bg-cyan-700/50' : 'bg-[#27272A]')}`} />
+                                                <div key={i} className={`w-1 h-1 rounded-full ${i < sessionsCount ? (isActive ? 'bg-orange-900' : 'bg-[#F97316]') : (isActive ? 'bg-orange-700/50' : 'bg-[#27272A]')}`} />
                                             ))}
                                         </div>
                                     </button>
@@ -426,12 +549,12 @@
                 <div className={`min-h-screen bg-[#0A0A0C] text-[#A1A1AA] transition-all duration-300 font-sans`}>
                     {/* Instalación Banner */}
                     {showInstallBanner && activeTab !== 'editor' && (
-                        <div className="bg-[#06B6D4]/10 border-b border-[#06B6D4]/20 py-2.5 px-4 flex items-center justify-between pt-[max(0.5rem,env(safe-area-inset-top))]">
+                        <div className="bg-[#F97316]/10 border-b border-[#F97316]/20 py-2.5 px-4 flex items-center justify-between pt-[max(0.5rem,env(safe-area-inset-top))]">
                             <div className="flex items-center gap-2">
-                                <Smartphone size={14} className="text-[#06B6D4]" />
-                                <span className="text-[11px] text-[#06B6D4] font-bold tracking-tight">Añade esta app a tu pantalla de inicio</span>
+                                <Smartphone size={14} className="text-[#F97316]" />
+                                <span className="text-[11px] text-[#F97316] font-bold tracking-tight">Añade esta app a tu pantalla de inicio</span>
                             </div>
-                            <button onClick={() => setShowInstallBanner(false)} className="p-1 active:bg-cyan-500/20 rounded-md"><X size={14} className="text-[#06B6D4]"/></button>
+                            <button onClick={() => setShowInstallBanner(false)} className="p-1 active:bg-orange-500/20 rounded-md"><X size={14} className="text-[#F97316]"/></button>
                         </div>
                     )}
 
@@ -439,8 +562,8 @@
                     <header className={`sticky top-0 z-40 backdrop-blur-xl border-b bg-[#0A0A0C]/90 border-[#1F1F23] px-6 ${showInstallBanner ? 'py-4' : 'pt-[max(1rem,env(safe-area-inset-top))] pb-4'}`}>
                         <div className="max-w-xl mx-auto flex justify-between items-center">
                             <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 bg-[#06B6D4] rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/20"><Zap size={18} className="text-black" /></div>
-                                <h1 className="text-xl font-black tracking-tighter text-[#F4F4F5]">SPRINT <span className="text-[#06B6D4]">&</span> RELAX</h1>
+                                <div className="w-9 h-9 bg-gradient-to-br from-[#F97316] to-[#EAB308] rounded-xl flex items-center justify-center shadow-lg shadow-orange-500/20"><Zap size={18} className="text-black" /></div>
+                                <h1 className="text-xl font-black tracking-tighter text-[#F4F4F5]">SPRINT <span className="text-[#F97316]">&amp;</span> RELAX</h1>
                             </div>
                         </div>
                     </header>
@@ -451,27 +574,33 @@
                         {/* ================= PESTAÑA CALENDARIO ================= */}
                         {activeTab === 'calendario' && (
                             <div className="space-y-4 animate-in fade-in duration-500">
-                                <WeekSelector />
+                                {renderWeekSelector()}
                                 <div className="flex items-center gap-2 mb-3 px-1 mt-6">
-                                    <Activity size={12} className="text-[#06B6D4]" />
+                                    <Activity size={12} className="text-[#F97316]" />
                                     <span className="text-[10px] font-black uppercase text-[#71717A] tracking-[0.2em]">Sesiones diarias</span>
                                 </div>
-                                {days.map(day => {
+                                {days.map((day, index) => {
                                     const session = plan[`${selectedYear}-${currentWeek}-${day}`] || plan[`${currentWeek}-${day}`];
                                     const isRest = session?.type === 'descanso';
+                                    
+                                    // Calculamos la fecha real del calendario perenne
+                                    const exactDate = getExactDate(selectedYear, currentWeek, index);
+                                    const dayNum = exactDate.getDate();
+                                    const monthStr = exactDate.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '').toUpperCase();
+
                                     return (
-                                        <div key={day} onClick={() => openEditor(selectedYear, currentWeek, day)} className={`group active:scale-[0.98] cursor-pointer p-4 rounded-2xl border transition-transform duration-200 ${session ? (isRest ? 'bg-[#18181B]/40 border-[#27272A]' : 'bg-[#06B6D4]/5 border-[#06B6D4]/40') : 'bg-[#141417] border-[#27272A] opacity-80 active:opacity-100'}`}>
+                                        <div key={day} onClick={() => openEditor(selectedYear, currentWeek, day)} className={`group active:scale-[0.98] cursor-pointer p-4 rounded-2xl border transition-transform duration-200 ${session ? (isRest ? 'bg-[#18181B]/40 border-[#27272A]' : 'bg-[#F97316]/5 border-[#F97316]/40') : 'bg-[#141417] border-[#27272A] opacity-80 active:opacity-100'}`}>
                                             <div className="flex justify-between items-center">
                                                 <div className="flex items-center gap-4">
-                                                    <div className={`w-12 h-12 rounded-[14px] flex items-center justify-center ${session ? (isRest ? 'bg-[#27272A] text-[#71717A]' : 'bg-[#06B6D4] text-black shadow-md shadow-cyan-500/20') : 'bg-[#1F1F23] text-[#52525B]'}`}>
+                                                    <div className={`w-12 h-12 rounded-[14px] flex items-center justify-center ${session ? (isRest ? 'bg-[#27272A] text-[#71717A]' : 'bg-gradient-to-br from-[#F97316] to-[#EAB308] text-black shadow-md shadow-orange-500/20') : 'bg-[#1F1F23] text-[#52525B]'}`}>
                                                         {session?.type === 'carrera' ? <Zap size={22}/> : session?.type === 'fuerza' ? <Dumbbell size={22}/> : session?.type === 'natacion' ? <Waves size={22}/> : session?.type === 'descanso' ? <Moon size={22}/> : <Timer size={22}/>}
                                                     </div>
                                                     <div>
-                                                        <span className="text-[10px] font-black uppercase text-[#71717A] tracking-widest">{day}</span>
+                                                        <span className="text-[10px] font-black uppercase text-[#71717A] tracking-widest">{day} · {dayNum} {monthStr}</span>
                                                         <h3 className={`text-[15px] font-bold mt-0.5 leading-tight ${session ? (isRest ? 'text-[#71717A] italic' : 'text-[#F4F4F5]') : 'text-[#52525B]'}`}>{session ? session.name : 'Configurar sesión'}</h3>
                                                     </div>
                                                 </div>
-                                                {session ? <CheckCircle2 size={20} className={isRest ? "text-[#3F3F46]" : "text-[#06B6D4]"} /> : <Plus size={20} className="text-[#3F3F46]" />}
+                                                {session ? <CheckCircle2 size={20} className={isRest ? "text-[#3F3F46]" : "text-[#F97316]"} /> : <Plus size={20} className="text-[#3F3F46]" />}
                                             </div>
                                         </div>
                                     );
@@ -483,10 +612,12 @@
                         {activeTab === 'editor' && (
                             <div className="space-y-6 animate-in slide-in-from-right-4 duration-300 pb-32">
                                 <div className="flex items-center justify-between mb-2">
-                                    <button onClick={() => { setEditingDay(null); setActiveTab('calendario'); }} className="flex items-center gap-2 p-2 -ml-2 text-[#A1A1AA] text-[11px] font-black uppercase tracking-widest active:text-[#06B6D4] active:bg-[#18181B] rounded-lg transition-all"><ArrowLeft size={16}/> Volver</button>
+                                    <button onClick={() => { setEditingDay(null); setActiveTab('calendario'); }} className="flex items-center gap-2 p-2 -ml-2 text-[#A1A1AA] text-[11px] font-black uppercase tracking-widest active:text-[#F97316] active:bg-[#18181B] rounded-lg transition-all"><ArrowLeft size={16}/> Volver</button>
                                     <div className="text-right">
                                         <span className="text-[9px] font-black text-[#52525B] uppercase block tracking-widest mb-0.5">{editingDay?.year} · Meso {currentMesocycle}</span>
-                                        <span className="text-[10px] font-black text-[#06B6D4] uppercase tracking-tighter">{editingDay?.day} · SEMANA {editingDay?.week}</span>
+                                        <span className="text-[10px] font-black text-[#F97316] uppercase tracking-tighter">
+                                            {editingDay?.day} {editingDay ? getExactDate(editingDay.year, editingDay.week, days.indexOf(editingDay.day)).getDate() : ''} {editingDay ? getExactDate(editingDay.year, editingDay.week, days.indexOf(editingDay.day)).toLocaleDateString('es-ES', { month: 'short' }).replace('.', '').toUpperCase() : ''} · SEMANA {editingDay?.week}
+                                        </span>
                                     </div>
                                 </div>
 
@@ -498,7 +629,7 @@
                                         { id: 'cuerda', icon: <Timer size={18}/> },
                                         { id: 'descanso', icon: <Moon size={18}/> }
                                     ].map(type => (
-                                        <button key={type.id} onClick={() => setSessionType(type.id)} className={`flex flex-col items-center gap-1.5 py-3 rounded-[14px] text-[9px] font-black uppercase transition-all active:scale-95 ${sessionType === type.id ? 'bg-[#06B6D4] text-black shadow-md' : 'text-[#52525B]'}`}>
+                                        <button key={type.id} onClick={() => setSessionType(type.id)} className={`flex flex-col items-center gap-1.5 py-3 rounded-[14px] text-[9px] font-black uppercase transition-all active:scale-95 ${sessionType === type.id ? 'bg-[#F97316] text-black shadow-md' : 'text-[#52525B]'}`}>
                                             {type.icon}
                                             {type.id === 'descanso' ? 'Desc' : type.id}
                                         </button>
@@ -514,13 +645,13 @@
                                                 <div className="space-y-4">
                                                     <div className="flex gap-2">
                                                         {['rodaje', 'fartlek', 'series'].map(st => (
-                                                            <button key={st} onClick={() => setIntervals([...intervals, { id: Math.random(), subType: st, notas: '', distancia: st === 'series' ? '400' : '10', ritmo: '4:30', reps: '10', tiempoFuerte: '1:00', tiempoSuave: '1:00', vamPct: '100', descanso: '1:30' }])} className="flex-1 py-3.5 rounded-[14px] bg-[#06B6D4]/10 border border-[#06B6D4]/20 text-[10px] font-black uppercase text-[#06B6D4] active:bg-[#06B6D4] active:text-black transition-all">+ {st}</button>
+                                                            <button key={st} onClick={() => setIntervals([...intervals, { id: Math.random(), subType: st, notas: '', distancia: st === 'series' ? '400' : '10', ritmo: '4:30', reps: '10', tiempoFuerte: '1:00', tiempoSuave: '1:00', vamPct: '100', descanso: '1:30' }])} className="flex-1 py-3.5 rounded-[14px] bg-[#F97316]/10 border border-[#F97316]/20 text-[10px] font-black uppercase text-[#F97316] active:bg-[#F97316] active:text-black transition-all">+ {st}</button>
                                                         ))}
                                                     </div>
                                                     {intervals.map(int => (
                                                         <div key={int.id} className="p-5 rounded-[20px] bg-[#141417] border border-[#27272A] relative">
                                                             <button onClick={() => deleteBlock(int.id, 'carrera')} className="absolute top-5 right-5 p-2 -mr-2 -mt-2 text-[#52525B] active:text-red-500 active:bg-red-500/10 rounded-lg transition-all"><Trash2 size={16}/></button>
-                                                            <span className="text-[10px] font-black text-[#06B6D4] uppercase tracking-[0.2em] block mb-5">{int.subType}</span>
+                                                            <span className="text-[10px] font-black text-[#F97316] uppercase tracking-[0.2em] block mb-5">{int.subType}</span>
                                                             <div className="grid grid-cols-3 gap-3 mb-4">
                                                                 {int.subType === 'rodaje' ? (
                                                                     <>
@@ -530,21 +661,25 @@
                                                                 ) : int.subType === 'fartlek' ? (
                                                                     <>
                                                                         <div className="space-y-1.5"><label className="text-[8px] font-black uppercase text-[#71717A] tracking-widest">Reps</label><input inputMode="numeric" className="w-full bg-[#1F1F23] border-none rounded-[14px] p-3.5 text-base font-bold text-white" value={int.reps} onChange={e => setIntervals(intervals.map(i => i.id === int.id ? {...i, reps: e.target.value} : i))}/></div>
-                                                                        <div className="space-y-1.5"><label className="text-[8px] font-black uppercase text-[#71717A] tracking-widest">F+S</label><input inputMode="text" className="w-full bg-[#1F1F23] border-none rounded-[14px] p-3.5 text-base font-bold text-white" value={`${int.tiempoFuerte}+${int.tiempoSuave}`} onChange={e => {
-                                                                            const [f, s] = e.target.value.split('+');
-                                                                            setIntervals(intervals.map(i => i.id === int.id ? {...i, tiempoFuerte: f || '', tiempoSuave: s || ''} : i));
-                                                                        }}/></div>
+                                                                        <div className="space-y-1.5">
+                                                                            <label className="text-[8px] font-black uppercase text-[#71717A] tracking-widest">Fuerte + Suave</label>
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <input inputMode="text" className="w-full bg-[#1F1F23] border-none rounded-[14px] p-3.5 text-base font-bold text-white text-center px-1" value={int.tiempoFuerte} onChange={e => setIntervals(intervals.map(i => i.id === int.id ? {...i, tiempoFuerte: e.target.value} : i))} placeholder="F"/>
+                                                                                <span className="text-[#52525B] font-black text-lg">+</span>
+                                                                                <input inputMode="text" className="w-full bg-[#1F1F23] border-none rounded-[14px] p-3.5 text-base font-bold text-white text-center px-1" value={int.tiempoSuave} onChange={e => setIntervals(intervals.map(i => i.id === int.id ? {...i, tiempoSuave: e.target.value} : i))} placeholder="S"/>
+                                                                            </div>
+                                                                        </div>
                                                                     </>
                                                                 ) : (
                                                                     <>
                                                                         <div className="space-y-1.5"><label className="text-[8px] font-black uppercase text-[#71717A] tracking-widest">Series x M</label><div className="flex items-center gap-1.5"><input inputMode="numeric" className="w-12 bg-[#1F1F23] border-none rounded-[14px] p-3 text-base font-bold text-center text-white px-1" value={int.reps} onChange={e => setIntervals(intervals.map(i => i.id === int.id ? {...i, reps: e.target.value} : i))}/><span className="text-[10px] text-[#71717A] font-black">x</span><input inputMode="numeric" className="w-16 bg-[#1F1F23] border-none rounded-[14px] p-3 text-base font-bold text-center text-white px-1" value={int.distancia} onChange={e => setIntervals(intervals.map(i => i.id === int.id ? {...i, distancia: e.target.value} : i))}/></div></div>
-                                                                        <div className="space-y-1.5"><label className="text-[8px] font-black uppercase text-[#71717A] tracking-widest">% VAM</label><input inputMode="numeric" className="w-full bg-[#1F1F23] border-none rounded-[14px] p-3.5 text-base text-[#06B6D4] font-black" value={int.vamPct} onChange={e => setIntervals(intervals.map(i => i.id === int.id ? {...i, vamPct: e.target.value} : i))}/></div>
+                                                                        <div className="space-y-1.5"><label className="text-[8px] font-black uppercase text-[#71717A] tracking-widest">% VAM</label><input inputMode="numeric" className="w-full bg-[#1F1F23] border-none rounded-[14px] p-3.5 text-base text-[#F97316] font-black" value={int.vamPct} onChange={e => setIntervals(intervals.map(i => i.id === int.id ? {...i, vamPct: e.target.value} : i))}/></div>
                                                                         <div className="space-y-1.5"><label className="text-[8px] font-black uppercase text-[#71717A] tracking-widest">Rec</label><input inputMode="text" className="w-full bg-[#1F1F23] border-none rounded-[14px] p-3.5 text-base font-bold text-white" value={int.descanso} onChange={e => setIntervals(intervals.map(i => i.id === int.id ? {...i, descanso: e.target.value} : i))}/></div>
                                                                     </>
                                                                 )}
                                                             </div>
                                                             <div className="space-y-1.5 bg-[#0A0A0C]/60 p-3.5 rounded-[16px] border border-[#27272A]">
-                                                                <label className="text-[8px] font-black uppercase text-[#71717A] flex items-center gap-1.5 mb-1"><StickyNote size={12} className="text-[#06B6D4]"/> Notas</label>
+                                                                <label className="text-[8px] font-black uppercase text-[#71717A] flex items-center gap-1.5 mb-1"><StickyNote size={12} className="text-[#F97316]"/> Notas</label>
                                                                 <textarea className="w-full bg-transparent text-sm font-medium resize-none focus:outline-none text-[#D4D4D8]" rows="2" value={int.notas} onChange={e => setIntervals(intervals.map(i => i.id === int.id ? {...i, notas: e.target.value} : i))} />
                                                             </div>
                                                         </div>
@@ -555,18 +690,18 @@
                                             {(sessionType === 'fuerza' || sessionType === 'cuerda' || sessionType === 'natacion') && (
                                                 <div className="space-y-6">
                                                     <button onClick={() => {
-                                                        const newBlock = { id: Math.random(), descansoSerie: sessionType === 'natacion' ? '0:20' : '1:30', items: [{ id: Math.random(), nombre: '', series: '3', reps: sessionType === 'natacion' ? '100m' : '12', rpe: '7', ritmo: sessionType === 'natacion' ? '1:45' : '', notas: '' }] };
+                                                        const newBlock = { id: Math.random(), descansoSerie: sessionType === 'natacion' ? '0:20' : '1:30', items: [{ id: Math.random(), nombre: '', videoUrl: '', series: '3', reps: sessionType === 'natacion' ? '100m' : '12', rpe: '7', ritmo: sessionType === 'natacion' ? '1:45' : '', notas: '' }] };
                                                         const setter = sessionType === 'fuerza' ? setExercises : sessionType === 'natacion' ? setSwimBlocks : setRopeBlocks;
                                                         const list = sessionType === 'fuerza' ? exercises : sessionType === 'natacion' ? swimBlocks : ropeBlocks;
                                                         setter([...list, newBlock]);
-                                                    }} className={`w-full py-5 border-2 border-dashed border-[#27272A] rounded-[20px] text-[10px] font-black uppercase text-[#71717A] active:bg-[#18181B] active:text-[#06B6D4] active:border-[#06B6D4]/30 transition-all`}>
+                                                    }} className={`w-full py-5 border-2 border-dashed border-[#27272A] rounded-[20px] text-[10px] font-black uppercase text-[#71717A] active:bg-[#18181B] active:text-[#F97316] active:border-[#F97316]/30 transition-all`}>
                                                         + Añadir Bloque {sessionType}
                                                     </button>
                                                     
                                                     {(sessionType === 'fuerza' ? exercises : sessionType === 'natacion' ? swimBlocks : ropeBlocks).map((block, bIdx) => (
                                                         <div key={block.id} className={`p-5 rounded-[24px] border space-y-4 bg-[#141417] border-[#27272A] shadow-sm`}>
                                                             <div className="flex justify-between items-center mb-1">
-                                                                <span className={`text-[10px] font-black uppercase tracking-[0.2em] text-[#06B6D4]`}>BLOQUE {bIdx+1}</span>
+                                                                <span className={`text-[10px] font-black uppercase tracking-[0.2em] text-[#F97316]`}>BLOQUE {bIdx+1}</span>
                                                                 <div className="flex gap-3 items-center">
                                                                     <div className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-[#0A0A0C]">
                                                                         <Clock size={12} className="text-[#71717A]"/>
@@ -588,13 +723,19 @@
                                                                         setter(list.map(b => b.id === block.id ? {...b, items: b.items.filter(e => e.id !== item.id)} : b));
                                                                     }} className="absolute top-3 right-3 p-2 -mt-1 -mr-1 text-[#71717A] active:bg-[#27272A] rounded-full transition-all"><X size={14} /></button>
                                                                     
-                                                                    <input placeholder={sessionType === 'natacion' ? "Ejercicio de nado" : "Nombre del ejercicio"} className="w-full bg-transparent text-[15px] font-black border-none outline-none mb-4 text-white placeholder-[#52525B] tracking-tight pr-8" value={item.nombre} onChange={e => updateItemField(block.id, item.id, 'nombre', e.target.value, sessionType)}/>
+                                                                    <div className="flex flex-col gap-2 mb-4">
+                                                                        <input placeholder={sessionType === 'natacion' ? "Ejercicio de nado" : "Nombre del ejercicio"} className="w-full bg-transparent text-[15px] font-black border-none outline-none text-white placeholder-[#52525B] tracking-tight pr-8" value={item.nombre} onChange={e => updateItemField(block.id, item.id, 'nombre', e.target.value, sessionType)}/>
+                                                                        <div className="flex items-center gap-2 bg-[#0A0A0C] px-3 py-2 rounded-[12px] border border-[#27272A]/50 focus-within:border-[#27272A] transition-colors">
+                                                                            <Youtube size={12} className="text-red-500/70" />
+                                                                            <input placeholder="URL del vídeo en YouTube (Opcional)" className="bg-transparent w-full text-[11px] outline-none text-[#A1A1AA] placeholder-[#52525B]" value={item.videoUrl || ''} onChange={e => updateItemField(block.id, item.id, 'videoUrl', e.target.value, sessionType)} />
+                                                                        </div>
+                                                                    </div>
 
                                                                     <div className="grid grid-cols-3 gap-2.5">
                                                                         <div className="bg-[#0A0A0C] p-2.5 rounded-[12px] text-center"><label className="text-[8px] uppercase font-black text-[#71717A] block mb-1">Series</label><input inputMode="numeric" className="bg-transparent text-center w-full text-sm font-bold text-white" value={item.series} onChange={e => updateItemField(block.id, item.id, 'series', e.target.value, sessionType)}/></div>
                                                                         <div className="bg-[#0A0A0C] p-2.5 rounded-[12px] text-center"><label className="text-[8px] uppercase font-black text-[#71717A] block mb-1">{sessionType === 'natacion' ? 'Metros' : 'Reps'}</label><input inputMode="text" className="bg-transparent text-center w-full text-sm font-bold text-white" value={item.reps} onChange={e => updateItemField(block.id, item.id, 'reps', e.target.value, sessionType)}/></div>
                                                                         {sessionType === 'natacion' ? (
-                                                                            <div className="bg-[#0A0A0C] p-2.5 rounded-[12px] text-center border border-cyan-500/20"><label className="text-[8px] uppercase font-black text-[#06B6D4] block mb-1">Ritmo</label><input inputMode="text" className="bg-transparent text-center w-full text-sm font-black text-[#06B6D4]" value={item.ritmo} onChange={e => updateItemField(block.id, item.id, 'ritmo', e.target.value, sessionType)}/></div>
+                                                                            <div className="bg-[#0A0A0C] p-2.5 rounded-[12px] text-center border border-yellow-500/20"><label className="text-[8px] uppercase font-black text-[#EAB308] block mb-1">Ritmo</label><input inputMode="text" className="bg-transparent text-center w-full text-sm font-black text-[#EAB308]" value={item.ritmo} onChange={e => updateItemField(block.id, item.id, 'ritmo', e.target.value, sessionType)}/></div>
                                                                         ) : (
                                                                             <div className="bg-[#0A0A0C] p-2.5 rounded-[12px] text-center border border-orange-500/20"><label className="text-[8px] uppercase font-black text-orange-500 block mb-1">RPE</label><input inputMode="numeric" className="bg-transparent text-center w-full text-sm font-black text-orange-500" value={item.rpe} onChange={e => updateItemField(block.id, item.id, 'rpe', e.target.value, sessionType)}/></div>
                                                                         )}
@@ -605,7 +746,7 @@
                                                             <button onClick={() => {
                                                                 const setter = sessionType === 'fuerza' ? setExercises : sessionType === 'natacion' ? setSwimBlocks : setRopeBlocks;
                                                                 const list = sessionType === 'fuerza' ? exercises : sessionType === 'natacion' ? swimBlocks : ropeBlocks;
-                                                                setter(list.map(b => b.id === block.id ? { ...b, items: [...b.items, { id: Math.random(), nombre: '', series: '3', reps: sessionType === 'natacion' ? '100m' : '12', rpe: '7', ritmo: sessionType === 'natacion' ? '1:45' : '', notas: '' }] } : b));
+                                                                setter(list.map(b => b.id === block.id ? { ...b, items: [...b.items, { id: Math.random(), nombre: '', videoUrl: '', series: '3', reps: sessionType === 'natacion' ? '100m' : '12', rpe: '7', ritmo: sessionType === 'natacion' ? '1:45' : '', notas: '' }] } : b));
                                                             }} className={`w-full py-3.5 bg-[#1F1F23] active:bg-[#27272A] rounded-[16px] text-[10px] font-black uppercase text-[#A1A1AA] transition-colors`}>+ Añadir Línea</button>
                                                         </div>
                                                     ))}
@@ -622,7 +763,7 @@
                                 )}
 
                                 <div className="fixed bottom-0 left-0 right-0 px-6 pt-6 pb-[max(2rem,env(safe-area-inset-bottom))] bg-gradient-to-t from-[#0A0A0C] via-[#0A0A0C]/95 to-transparent pointer-events-none z-50">
-                                    <button onClick={saveAndReturn} className="max-w-xl mx-auto w-full bg-[#06B6D4] py-4.5 rounded-[18px] font-black text-[12px] uppercase tracking-[0.3em] text-black shadow-2xl shadow-cyan-500/30 pointer-events-auto flex items-center justify-center gap-3 active:bg-[#22D3EE] active:scale-[0.98] transition-all h-[60px]">
+                                    <button onClick={saveAndReturn} className="max-w-xl mx-auto w-full bg-gradient-to-r from-[#F97316] to-[#EAB308] py-4.5 rounded-[18px] font-black text-[12px] uppercase tracking-[0.3em] text-black shadow-2xl shadow-orange-500/30 pointer-events-auto flex items-center justify-center gap-3 active:from-[#FB923C] active:to-[#FACC15] active:scale-[0.98] transition-all h-[60px]">
                                         <Save size={18}/> {sessionType === 'descanso' ? 'Confirmar Descanso' : 'Guardar Sesión'}
                                     </button>
                                 </div>
@@ -632,22 +773,26 @@
                         {/* ================= PESTAÑA RESUMEN ================= */}
                         {activeTab === 'resumen' && (
                             <div className="space-y-6 animate-in fade-in duration-500 pb-10">
-                                <WeekSelector />
+                                {renderWeekSelector()}
                                 <div className="text-center pt-2 pb-4">
                                     <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Resumen Semanal</h2>
-                                    <div className="h-1.5 w-12 bg-[#06B6D4] mx-auto mt-3 rounded-full shadow-lg shadow-cyan-500/20"></div>
+                                    <div className="h-1.5 w-12 bg-gradient-to-r from-[#F97316] to-[#EAB308] mx-auto mt-3 rounded-full shadow-lg shadow-orange-500/20"></div>
                                 </div>
                                 <div className="space-y-6">
-                                    {days.map(day => {
+                                    {days.map((day, index) => {
                                         const session = plan[`${selectedYear}-${currentWeek}-${day}`] || plan[`${currentWeek}-${day}`];
                                         const isRest = session?.type === 'descanso';
                                         const theme = getSessionTheme(session?.type);
+                                        
+                                        const exactDate = getExactDate(selectedYear, currentWeek, index);
+                                        const dayNum = exactDate.getDate();
+                                        const monthStr = exactDate.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '').toUpperCase();
                                         
                                         if (!session || isRest) return (
                                             <div key={day} className="flex justify-between items-center py-5 border-b border-[#1F1F23]">
                                                 <div className="flex items-center gap-3 opacity-50">
                                                     <Moon size={18} className="text-[#52525B]" />
-                                                    <span className="text-[11px] font-black uppercase tracking-[0.2em]">{day}</span>
+                                                    <span className="text-[11px] font-black uppercase tracking-[0.2em]">{day} · {dayNum} {monthStr}</span>
                                                 </div>
                                                 <span className="text-[10px] font-bold italic uppercase tracking-[0.3em] text-[#52525B]">Descanso</span>
                                             </div>
@@ -660,7 +805,7 @@
                                                         <div className={`p-2.5 rounded-[12px] ${theme.iconBg} ${theme.accent}`}>
                                                             {theme.icon}
                                                         </div>
-                                                        <span className={`text-[11px] font-black uppercase tracking-[0.2em] ${theme.accent}`}>{day}</span>
+                                                        <span className={`text-[11px] font-black uppercase tracking-[0.2em] ${theme.accent}`}>{day} · {dayNum} {monthStr}</span>
                                                     </div>
                                                     <span className="text-[15px] font-black text-white uppercase tracking-tight max-w-[60%] text-right leading-tight">{session.name}</span>
                                                 </div>
@@ -695,8 +840,22 @@
                                                                     {block.items.map((item, eIdx) => (
                                                                         <div key={eIdx} className="space-y-1.5">
                                                                             <div className="flex justify-between items-start gap-3">
-                                                                                <span className="text-[#F4F4F5] font-bold uppercase tracking-tight text-[12px] leading-tight flex-1">{item.nombre || (session.type === 'natacion' ? 'Nado' : 'Ejercicio')}</span>
-                                                                                <span className={`font-black uppercase tracking-widest text-[12px] whitespace-nowrap ${theme.accent}`}>
+                                                                                <div className="flex items-center gap-2 flex-1 flex-wrap">
+                                                                                    <span className="text-[#F4F4F5] font-bold uppercase tracking-tight text-[12px] leading-tight">{item.nombre || (session.type === 'natacion' ? 'Nado' : 'Ejercicio')}</span>
+                                                                                    {item.videoUrl && (
+                                                                                        <button 
+                                                                                            onClick={() => {
+                                                                                                const videoId = getYoutubeVideoId(item.videoUrl);
+                                                                                                if (videoId) setActiveVideo(videoId);
+                                                                                            }} 
+                                                                                            className="text-red-500 hover:text-red-400 active:scale-90 transition-all flex items-center justify-center bg-red-500/10 p-1.5 rounded-md" 
+                                                                                            title="Ver vídeo en la app"
+                                                                                        >
+                                                                                            <Youtube size={12} />
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                                <span className={`font-black uppercase tracking-widest text-[12px] whitespace-nowrap mt-0.5 ${theme.accent}`}>
                                                                                     {item.series}x{item.reps} 
                                                                                     {session.type === 'natacion' ? <span className="ml-1.5 text-white/50">@{item.ritmo}</span> : (item.rpe && <span className="text-orange-500 ml-1.5">RPE {item.rpe}</span>)}
                                                                                 </span>
@@ -710,7 +869,7 @@
                                                     ))}
                                                 </div>
 
-                                                <div className="mt-3 p-4 rounded-[18px] bg-[#141417] border border-[#27272A] relative group focus-within:border-[#06B6D4]/40 focus-within:bg-[#18181B] transition-all duration-300">
+                                                <div className="mt-3 p-4 rounded-[18px] bg-[#141417] border border-[#27272A] relative group focus-within:border-[#F97316]/40 focus-within:bg-[#18181B] transition-all duration-300">
                                                     <div className="flex items-center gap-2 mb-2">
                                                         <Pen size={12} className={theme.accent} />
                                                         <span className="text-[10px] font-black uppercase text-[#A1A1AA] tracking-widest">Diario del Atleta</span>
@@ -735,18 +894,18 @@
                             <div className="space-y-6 animate-in fade-in duration-500 pb-10">
                                 <div className="text-center pt-2 pb-4">
                                     <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Herramientas</h2>
-                                    <div className="h-1.5 w-12 bg-[#06B6D4] mx-auto mt-3 rounded-full shadow-lg shadow-cyan-500/20"></div>
+                                    <div className="h-1.5 w-12 bg-gradient-to-r from-[#F97316] to-[#EAB308] mx-auto mt-3 rounded-full shadow-lg shadow-orange-500/20"></div>
                                 </div>
 
                                 {/* Selector de Herramienta */}
                                 <div className="flex bg-[#18181B] p-1.5 rounded-[18px] border border-[#27272A] mb-6 overflow-x-auto no-scrollbar">
-                                    <button onClick={() => setActiveTool('vam')} className={`flex-1 min-w-[70px] flex items-center justify-center gap-1.5 py-3.5 rounded-[14px] text-[10px] font-black uppercase transition-all active:scale-95 ${activeTool === 'vam' ? 'bg-[#06B6D4] text-black shadow-md' : 'text-[#71717A] hover:text-[#A1A1AA]'}`}>
+                                    <button onClick={() => setActiveTool('vam')} className={`flex-1 min-w-[70px] flex items-center justify-center gap-1.5 py-3.5 rounded-[14px] text-[10px] font-black uppercase transition-all active:scale-95 ${activeTool === 'vam' ? 'bg-yellow-500 text-black shadow-md' : 'text-[#71717A] hover:text-[#A1A1AA]'}`}>
                                         <Calculator size={14} /> VAM
                                     </button>
                                     <button onClick={() => setActiveTool('dominadas')} className={`flex-1 min-w-[70px] flex items-center justify-center gap-1.5 py-3.5 rounded-[14px] text-[10px] font-black uppercase transition-all active:scale-95 ${activeTool === 'dominadas' ? 'bg-orange-500 text-black shadow-md' : 'text-[#71717A] hover:text-[#A1A1AA]'}`}>
                                         <Dumbbell size={14} /> Dom.
                                     </button>
-                                    <button onClick={() => setActiveTool('vbt')} className={`flex-1 min-w-[70px] flex items-center justify-center gap-1.5 py-3.5 rounded-[14px] text-[10px] font-black uppercase transition-all active:scale-95 ${activeTool === 'vbt' ? 'bg-purple-500 text-white shadow-md' : 'text-[#71717A] hover:text-[#A1A1AA]'}`}>
+                                    <button onClick={() => setActiveTool('vbt')} className={`flex-1 min-w-[70px] flex items-center justify-center gap-1.5 py-3.5 rounded-[14px] text-[10px] font-black uppercase transition-all active:scale-95 ${activeTool === 'vbt' ? 'bg-red-500 text-white shadow-md' : 'text-[#71717A] hover:text-[#A1A1AA]'}`}>
                                         <VideoIcon size={14} /> VBT
                                     </button>
                                 </div>
@@ -756,28 +915,28 @@
                                     <div className="animate-in slide-in-from-left-4 duration-300 space-y-6">
                                         <div className="p-5 rounded-[24px] bg-[#141417] border border-[#27272A] space-y-5 shadow-sm">
                                             <div className="flex items-center gap-3 border-b border-[#1F1F23] pb-4">
-                                                <div className="p-2.5 rounded-[12px] bg-cyan-500/10 text-cyan-400"><Calculator size={20}/></div>
+                                                <div className="p-2.5 rounded-[12px] bg-yellow-500/10 text-yellow-400"><Calculator size={20}/></div>
                                                 <h3 className="text-[14px] font-black text-white uppercase tracking-tight">Calculadora VAM</h3>
                                             </div>
                                             <div className="space-y-4">
                                                 <div className="space-y-2">
                                                     <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">Distancia del Test (m)</label>
-                                                    <input type="number" inputMode="numeric" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-cyan-500/50 outline-none transition-all" placeholder="Ej: 2000" value={vamDistance} onChange={e => setVamDistance(e.target.value)}/>
+                                                    <input type="number" inputMode="numeric" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-yellow-500/50 outline-none transition-all" placeholder="Ej: 2000" value={vamDistance} onChange={e => setVamDistance(e.target.value)}/>
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div className="space-y-2">
                                                         <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">Minutos</label>
-                                                        <input type="number" inputMode="numeric" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-cyan-500/50 outline-none transition-all" placeholder="Ej: 7" value={vamMin} onChange={e => setVamMin(e.target.value)}/>
+                                                        <input type="number" inputMode="numeric" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-yellow-500/50 outline-none transition-all" placeholder="Ej: 7" value={vamMin} onChange={e => setVamMin(e.target.value)}/>
                                                     </div>
                                                     <div className="space-y-2">
                                                         <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">Segundos</label>
-                                                        <input type="number" inputMode="numeric" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-cyan-500/50 outline-none transition-all" placeholder="Ej: 30" value={vamSec} onChange={e => setVamSec(e.target.value)}/>
+                                                        <input type="number" inputMode="numeric" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-yellow-500/50 outline-none transition-all" placeholder="Ej: 30" value={vamSec} onChange={e => setVamSec(e.target.value)}/>
                                                     </div>
                                                 </div>
                                             </div>
                                             <div className="pt-4 pb-2 text-center bg-[#0A0A0C]/50 rounded-[16px] p-4 border border-[#1F1F23]">
                                                 <div className="text-[10px] font-black uppercase text-[#71717A] tracking-widest mb-1">Tu VAM Estimada</div>
-                                                <div className="text-4xl font-black text-[#06B6D4] tracking-tighter">{currentVam.toFixed(1)} <span className="text-lg text-[#52525B] tracking-normal">km/h</span></div>
+                                                <div className="text-4xl font-black text-yellow-500 tracking-tighter">{currentVam.toFixed(1)} <span className="text-lg text-[#52525B] tracking-normal">km/h</span></div>
                                             </div>
                                         </div>
 
@@ -786,8 +945,8 @@
                                                  <h3 className="text-[11px] font-black text-[#A1A1AA] uppercase tracking-widest text-center">Ritmos de Entrenamiento / 100m</h3>
                                                  <div className="grid grid-cols-2 gap-3">
                                                     {[80, 85, 90, 95, 100, 105, 110, 115, 120].map(pct => (
-                                                        <div key={pct} className={`flex justify-between items-center p-3.5 rounded-[14px] border transition-all ${pct === 100 ? 'border-cyan-500/40 bg-cyan-500/10 shadow-[0_0_15px_rgba(6,182,212,0.15)]' : 'border-[#27272A] bg-[#1F1F23]'}`}>
-                                                            <span className={`text-[11px] font-black ${pct === 100 ? 'text-cyan-400' : 'text-[#71717A]'}`}>{pct}% VAM</span>
+                                                        <div key={pct} className={`flex justify-between items-center p-3.5 rounded-[14px] border transition-all ${pct === 100 ? 'border-yellow-500/40 bg-yellow-500/10 shadow-[0_0_15px_rgba(234,179,8,0.15)]' : 'border-[#27272A] bg-[#1F1F23]'}`}>
+                                                            <span className={`text-[11px] font-black ${pct === 100 ? 'text-yellow-400' : 'text-[#71717A]'}`}>{pct}% VAM</span>
                                                             <span className={`text-[15px] font-black ${pct === 100 ? 'text-white' : 'text-[#F4F4F5]'}`}>{getPace100m(currentVam, pct)}</span>
                                                         </div>
                                                     ))}
@@ -807,7 +966,7 @@
                                             </div>
                                             
                                             <div className="space-y-4">
-                                                <h4 className="text-[10px] font-black text-[#06B6D4] uppercase tracking-widest">1. Datos del test (Tu Marca)</h4>
+                                                <h4 className="text-[10px] font-black text-[#F97316] uppercase tracking-widest">1. Datos del test (Tu Marca)</h4>
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div className="space-y-2">
                                                         <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">Tu Peso (kg)</label>
@@ -838,11 +997,11 @@
                                             )}
 
                                             <div className="border-t border-[#1F1F23] pt-5 space-y-4">
-                                                <h4 className="text-[10px] font-black text-[#06B6D4] uppercase tracking-widest">2. Planificar Serie</h4>
+                                                <h4 className="text-[10px] font-black text-[#F97316] uppercase tracking-widest">2. Planificar Serie</h4>
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div className="space-y-2">
                                                         <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">Reps Objetivo</label>
-                                                        <input type="number" inputMode="numeric" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-cyan-500/50 outline-none transition-all" placeholder="Ej: 8" value={targetReps} onChange={e => setTargetReps(e.target.value)}/>
+                                                        <input type="number" inputMode="numeric" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-orange-500/50 outline-none transition-all" placeholder="Ej: 8" value={targetReps} onChange={e => setTargetReps(e.target.value)}/>
                                                     </div>
                                                     <div className="space-y-2">
                                                         <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">RPE Objetivo</label>
@@ -852,8 +1011,8 @@
                                             </div>
 
                                             {targetTotalWeight > 0 && (
-                                                <div className="pt-2 pb-1 text-center bg-[#0A0A0C]/80 rounded-[16px] p-5 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.1)]">
-                                                    <div className="text-[10px] font-black uppercase text-cyan-500 tracking-widest mb-1">Lastre Recomendado para la Serie</div>
+                                                <div className="pt-2 pb-1 text-center bg-[#0A0A0C]/80 rounded-[16px] p-5 border border-orange-500/30 shadow-[0_0_20px_rgba(249,115,22,0.1)]">
+                                                    <div className="text-[10px] font-black uppercase text-orange-500 tracking-widest mb-1">Lastre Recomendado para la Serie</div>
                                                     <div className="text-3xl font-black text-white tracking-tighter mt-2">{formatLastre(recommendedLastre)}</div>
                                                     <div className="text-[10px] font-bold text-[#71717A] uppercase mt-2">Peso Total a mover: {targetTotalWeight.toFixed(1)} kg</div>
                                                 </div>
@@ -867,37 +1026,54 @@
                                     <div className="animate-in slide-in-from-right-4 duration-300">
                                         <div className="p-5 rounded-[24px] bg-[#141417] border border-[#27272A] space-y-5 shadow-sm">
                                             <div className="flex items-center gap-3 border-b border-[#1F1F23] pb-4">
-                                                <div className="p-2.5 rounded-[12px] bg-purple-500/10 text-purple-400"><VideoIcon size={20}/></div>
+                                                <div className="p-2.5 rounded-[12px] bg-red-500/10 text-red-400"><VideoIcon size={20}/></div>
                                                 <h3 className="text-[14px] font-black text-white uppercase tracking-tight">VBT - Análisis de Video</h3>
                                             </div>
                                             
                                             <div className="space-y-4">
-                                                <h4 className="text-[10px] font-black text-[#06B6D4] uppercase tracking-widest">1. Configuración</h4>
+                                                <h4 className="text-[10px] font-black text-[#F97316] uppercase tracking-widest">1. Configuración</h4>
                                                 <div className="grid grid-cols-1 gap-4">
                                                     <div className="space-y-2">
+                                                        <div className="flex justify-between items-end">
                                                         <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">Ejercicio</label>
-                                                        <select className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-sm font-black text-white focus:ring-1 focus:ring-purple-500/50 outline-none transition-all appearance-none" value={vbtExercise} onChange={e => setVbtExercise(e.target.value)}>
-                                                            <option value="sentadilla">Sentadilla</option>
-                                                            <option value="banca">Press Banca</option>
-                                                            <option value="muerto">Peso Muerto</option>
-                                                            <option value="dominadas">Dominadas</option>
-                                                        </select>
+                                                        <span className="text-[9px] font-bold text-orange-500 uppercase tracking-widest">RM Guardado: {saved1RMs[vbtExercise] ? `${saved1RMs[vbtExercise].toFixed(1)} kg` : '---'}</span>
                                                     </div>
+                                                    <select className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-sm font-black text-white focus:ring-1 focus:ring-red-500/50 outline-none transition-all appearance-none" value={vbtExercise} onChange={e => {
+                                                        const ex = e.target.value;
+                                                        setVbtExercise(ex);
+                                                        setVbtRom(savedROMs[ex] || '');
+                                                    }}>
+                                                        <option value="sentadilla">Sentadilla</option>
+                                                        <option value="banca">Press Banca</option>
+                                                        <option value="muerto">Peso Muerto</option>
+                                                        <option value="dominadas">Dominadas</option>
+                                                    </select>
                                                 </div>
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">Peso (kg)</label>
-                                                        <input type="number" inputMode="decimal" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-purple-500/50 outline-none transition-all" placeholder="Ej: 100" value={vbtWeight} onChange={e => setVbtWeight(e.target.value)}/>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">ROM (cm)</label>
-                                                        <input type="number" inputMode="decimal" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-purple-500/50 outline-none transition-all" placeholder="Ej: 60" value={vbtRom} onChange={e => setVbtRom(e.target.value)}/>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <div className="space-y-2">
+                                                    <label className="text-[9px] font-black uppercase text-[#71717A] tracking-widest pl-1">Peso (kg)</label>
+                                                    <input type="number" inputMode="decimal" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-3 text-sm font-black text-white focus:ring-1 focus:ring-red-500/50 outline-none transition-all" placeholder="100" value={vbtWeight} onChange={e => setVbtWeight(e.target.value)}/>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-[9px] font-black uppercase text-[#71717A] tracking-widest pl-1">ROM (cm)</label>
+                                                    <input type="number" inputMode="decimal" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-3 text-sm font-black text-white focus:ring-1 focus:ring-red-500/50 outline-none transition-all" placeholder="60" value={vbtRom} onChange={e => {
+                                                        const val = e.target.value;
+                                                        setVbtRom(val);
+                                                        setSavedROMs(prev => ({...prev, [vbtExercise]: val}));
+                                                    }}/>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-[9px] font-black uppercase text-[#71717A] tracking-widest pl-1 flex items-center gap-1">
+                                                        FPS {isDetectingFps && <i className="fa-solid fa-spinner fa-spin text-red-500"></i>}
+                                                        </label>
+                                                        <input type="number" inputMode="numeric" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-3 text-sm font-black text-red-400 focus:ring-1 focus:ring-red-500/50 outline-none transition-all" placeholder="60" value={vbtFps} onChange={e => setVbtFps(e.target.value)}/>
                                                     </div>
                                                 </div>
                                             </div>
 
                                             <div className="border-t border-[#1F1F23] pt-5 space-y-4">
-                                                <h4 className="text-[10px] font-black text-[#06B6D4] uppercase tracking-widest">2. Subir Video y Marcar</h4>
+                                                <h4 className="text-[10px] font-black text-[#F97316] uppercase tracking-widest">2. Subir Video y Marcar</h4>
                                                 
                                                 <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-[#27272A] rounded-[16px] cursor-pointer hover:bg-[#1F1F23] transition-all">
                                                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
@@ -911,14 +1087,27 @@
                                                     <div className="space-y-3 mt-4">
                                                         <video ref={videoRef} src={vbtVideoUrl} controls className="w-full rounded-[12px] border border-[#27272A] bg-black max-h-[400px]" playsInline></video>
                                                         
+                                                        <div className="flex justify-between items-center bg-[#0A0A0C] p-2 rounded-[16px] border border-[#27272A]">
+                                                            <button onClick={() => handleStepFrame(-1)} className="p-3 bg-[#1F1F23] active:bg-[#27272A] rounded-[12px] text-[#A1A1AA] hover:text-white transition-all shadow-sm">
+                                                                <StepBackward size={16}/>
+                                                            </button>
+                                                            <div className="text-[9px] font-black uppercase text-[#71717A] tracking-widest text-center leading-tight">
+                                                                Ajuste de Frame<br/>
+                                                                <span className="text-red-400">1 / {vbtFps || 60}s</span>
+                                                            </div>
+                                                            <button onClick={() => handleStepFrame(1)} className="p-3 bg-[#1F1F23] active:bg-[#27272A] rounded-[12px] text-[#A1A1AA] hover:text-white transition-all shadow-sm">
+                                                                <StepForward size={16}/>
+                                                            </button>
+                                                        </div>
+
                                                         <div className="grid grid-cols-2 gap-3">
                                                             <button onClick={() => markTime('start')} className="py-3 bg-[#1F1F23] active:bg-[#27272A] border border-[#27272A] rounded-[12px] text-[10px] font-black uppercase text-white transition-all">
                                                                 Marcar Inicio
-                                                                {vbtStartTime !== null && <span className="block text-purple-400 text-xs mt-1">{vbtStartTime.toFixed(2)}s</span>}
+                                                                {vbtStartTime !== null && <span className="block text-red-400 text-xs mt-1">{vbtStartTime.toFixed(2)}s</span>}
                                                             </button>
                                                             <button onClick={() => markTime('end')} className="py-3 bg-[#1F1F23] active:bg-[#27272A] border border-[#27272A] rounded-[12px] text-[10px] font-black uppercase text-white transition-all">
                                                                 Marcar Fin
-                                                                {vbtEndTime !== null && <span className="block text-purple-400 text-xs mt-1">{vbtEndTime.toFixed(2)}s</span>}
+                                                                {vbtEndTime !== null && <span className="block text-red-400 text-xs mt-1">{vbtEndTime.toFixed(2)}s</span>}
                                                             </button>
                                                         </div>
                                                     </div>
@@ -932,37 +1121,41 @@
                                                             <div className="text-[9px] font-black uppercase text-[#71717A] tracking-widest mb-1">Tiempo Conc.</div>
                                                             <div className="text-xl font-black text-white">{vbtTime.toFixed(2)} <span className="text-xs text-[#52525B]">s</span></div>
                                                         </div>
-                                                        <div className="text-center bg-purple-500/10 rounded-[16px] p-3 border border-purple-500/20">
-                                                            <div className="text-[9px] font-black uppercase text-purple-400/80 tracking-widest mb-1">Velocidad Media</div>
-                                                            <div className="text-xl font-black text-purple-400">{vbtVelocity.toFixed(2)} <span className="text-xs text-purple-500/50">m/s</span></div>
+                                                        <div className="text-center bg-red-500/10 rounded-[16px] p-3 border border-red-500/20">
+                                                            <div className="text-[9px] font-black uppercase text-red-400/80 tracking-widest mb-1">Velocidad Media</div>
+                                                            <div className="text-xl font-black text-red-400">{vbtVelocity.toFixed(2)} <span className="text-xs text-red-500/50">m/s</span></div>
                                                         </div>
                                                     </div>
 
-                                                    <div className="text-center bg-[#0A0A0C]/80 rounded-[16px] p-5 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.1)]">
-                                                        <div className="text-[10px] font-black uppercase text-cyan-500 tracking-widest mb-1">1RM Estimado (Genérico)</div>
+                                                    <div className="text-center bg-[#0A0A0C]/80 rounded-[16px] p-5 border border-orange-500/30 shadow-[0_0_20px_rgba(249,115,22,0.1)]">
+                                                        <div className="text-[10px] font-black uppercase text-orange-500 tracking-widest mb-1">1RM Estimado</div>
                                                         <div className="text-3xl font-black text-white tracking-tighter mt-2">{currentVbt1Rm.toFixed(1)} <span className="text-lg text-[#52525B]">kg</span></div>
+                                                        <button onClick={() => setSaved1RMs({...saved1RMs, [vbtExercise]: currentVbt1Rm})} className="mt-4 w-full py-3 bg-orange-500/10 active:bg-orange-500/20 text-orange-500 border border-orange-500/20 rounded-[14px] text-[10px] font-black uppercase tracking-widest transition-all">Guardar RM Actual</button>
                                                     </div>
+                                                </div>
+                                            )}
 
-                                                    <div className="border-t border-[#1F1F23] pt-5 mt-5 space-y-4">
-                                                        <h4 className="text-[10px] font-black text-[#06B6D4] uppercase tracking-widest">3. Planificar Serie Diaria</h4>
-                                                        <div className="grid grid-cols-2 gap-4">
-                                                            <div className="space-y-2">
-                                                                <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">Reps Objetivo</label>
-                                                                <input type="number" inputMode="numeric" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-purple-500/50 outline-none transition-all" placeholder="Ej: 5" value={vbtTargetReps} onChange={e => setVbtTargetReps(e.target.value)}/>
-                                                            </div>
-                                                            <div className="space-y-2">
-                                                                <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">RPE Objetivo</label>
-                                                                <input type="number" inputMode="decimal" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-purple-400 focus:ring-1 focus:ring-purple-500/50 outline-none transition-all" placeholder="Ej: 8" value={vbtTargetRpe} onChange={e => setVbtTargetRpe(e.target.value)}/>
-                                                            </div>
-                                                        </div>
+                                            <div className="border-t border-[#1F1F23] pt-5 mt-5 space-y-4">
+                                                <div className="flex justify-between items-center">
+                                                    <h4 className="text-[10px] font-black text-[#F97316] uppercase tracking-widest">3. Planificar Serie Diaria</h4>
+                                                    <span className="text-[9px] font-bold text-[#71717A] uppercase tracking-widest">RM Base: {effectiveVbt1Rm > 0 ? effectiveVbt1Rm.toFixed(1) : '---'} kg</span>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">Reps Objetivo</label>
+                                                        <input type="number" inputMode="numeric" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-white focus:ring-1 focus:ring-red-500/50 outline-none transition-all" placeholder="Ej: 5" value={vbtTargetReps} onChange={e => setVbtTargetReps(e.target.value)}/>
                                                     </div>
+                                                    <div className="space-y-2">
+                                                        <label className="text-[10px] font-black uppercase text-[#71717A] tracking-widest pl-1">RPE Objetivo</label>
+                                                        <input type="number" inputMode="decimal" className="w-full bg-[#1F1F23] border border-[#27272A] rounded-[16px] p-4 text-lg font-black text-red-400 focus:ring-1 focus:ring-red-500/50 outline-none transition-all" placeholder="Ej: 8" value={vbtTargetRpe} onChange={e => setVbtTargetRpe(e.target.value)}/>
+                                                    </div>
+                                                </div>
+                                            </div>
 
-                                                    {recommendedVbtWeight > 0 && (
-                                                        <div className="pt-2 pb-1 mt-4 text-center bg-[#0A0A0C]/80 rounded-[16px] p-5 border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.1)]">
-                                                            <div className="text-[10px] font-black uppercase text-purple-400 tracking-widest mb-1">Peso Recomendado</div>
-                                                            <div className="text-3xl font-black text-white tracking-tighter mt-2">{recommendedVbtWeight.toFixed(1)} kg</div>
-                                                        </div>
-                                                    )}
+                                            {recommendedVbtWeight > 0 && (
+                                                <div className="pt-2 pb-1 mt-4 text-center bg-[#0A0A0C]/80 rounded-[16px] p-5 border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.1)]">
+                                                    <div className="text-[10px] font-black uppercase text-red-400 tracking-widest mb-1">Peso Recomendado</div>
+                                                    <div className="text-3xl font-black text-white tracking-tighter mt-2">{recommendedVbtWeight.toFixed(1)} kg</div>
                                                 </div>
                                             )}
                                         </div>
@@ -972,18 +1165,44 @@
                         )}
                     </main>
 
+                    {/* Reproductor de Video (Modal Nativo) */}
+                    {activeVideo && (
+                        <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-300">
+                            <div className="w-full max-w-xl px-4 flex justify-between items-center mb-4">
+                                <a href={`https://www.youtube.com/watch?v=${activeVideo}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[11px] font-bold bg-red-500/10 text-red-500 px-3 py-2 rounded-xl border border-red-500/20 active:scale-95 transition-all">
+                                    <Youtube size={14} /> Abrir en App / Externo
+                                </a>
+                                <button onClick={() => setActiveVideo(null)} className="w-10 h-10 bg-[#1F1F23] rounded-full flex items-center justify-center text-white active:scale-90 transition-all shadow-lg border border-[#27272A]">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="w-full max-w-xl px-4">
+                                <div className="aspect-video bg-black rounded-2xl overflow-hidden border border-[#27272A] shadow-2xl">
+                                    <iframe 
+                                        src={`https://www.youtube.com/embed/${activeVideo}?autoplay=1`} 
+                                        className="w-full h-full" 
+                                        frameBorder="0" 
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                        allowFullScreen
+                                    ></iframe>
+                                </div>
+                                <p className="text-center text-[10px] font-black uppercase tracking-widest text-[#71717A] mt-6">Si el vídeo da error, usa el botón superior para abrirlo en YouTube</p>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Tab Bar Inferior */}
                     {activeTab !== 'editor' && (
                         <nav className="fixed bottom-0 w-full bg-[#141417]/95 backdrop-blur-xl border-t border-[#27272A] pb-[max(0.8rem,env(safe-area-inset-bottom))] pt-2.5 px-4 z-50 flex justify-around shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
-                            <button onClick={() => setActiveTab('calendario')} className={`flex flex-col items-center gap-1.5 transition-all p-2 w-[72px] active:scale-95 ${activeTab === 'calendario' ? 'text-[#06B6D4]' : 'text-[#71717A]'}`}>
+                            <button onClick={() => setActiveTab('calendario')} className={`flex flex-col items-center gap-1.5 transition-all p-2 w-[72px] active:scale-95 ${activeTab === 'calendario' ? 'text-[#F97316]' : 'text-[#71717A]'}`}>
                                 <Calendar size={20} />
                                 <span className="text-[9px] font-black uppercase tracking-widest">Plan</span>
                             </button>
-                            <button onClick={() => setActiveTab('resumen')} className={`flex flex-col items-center gap-1.5 transition-all p-2 w-[72px] active:scale-95 ${activeTab === 'resumen' ? 'text-[#06B6D4]' : 'text-[#71717A]'}`}>
+                            <button onClick={() => setActiveTab('resumen')} className={`flex flex-col items-center gap-1.5 transition-all p-2 w-[72px] active:scale-95 ${activeTab === 'resumen' ? 'text-[#F97316]' : 'text-[#71717A]'}`}>
                                 <FileText size={20} />
                                 <span className="text-[9px] font-black uppercase tracking-widest">Resumen</span>
                             </button>
-                            <button onClick={() => setActiveTab('herramientas')} className={`flex flex-col items-center gap-1.5 transition-all p-2 w-[72px] active:scale-95 ${activeTab === 'herramientas' ? 'text-[#06B6D4]' : 'text-[#71717A]'}`}>
+                            <button onClick={() => setActiveTab('herramientas')} className={`flex flex-col items-center gap-1.5 transition-all p-2 w-[72px] active:scale-95 ${activeTab === 'herramientas' ? 'text-[#F97316]' : 'text-[#71717A]'}`}>
                                 <Calculator size={20} />
                                 <span className="text-[9px] font-black uppercase tracking-widest">Herram.</span>
                             </button>
